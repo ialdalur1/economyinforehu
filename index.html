@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contabilidad</title>
+<style>
+:root{--bg:#f6f7fb;--fg:#1d2433;--card:#fff;--ac:#2f5bea;--bd:#d5d9e4}
+@media(prefers-color-scheme:dark){:root{--bg:#161a23;--fg:#e8ebf3;--card:#202636;--ac:#6f93ff;--bd:#3a4258}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg);line-height:1.45}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 24px;background:var(--ac);color:#fff;gap:12px;flex-wrap:wrap}
+h1{margin:0;font-size:1.3rem}h2{margin-top:0}h3{margin:0 0 6px}
+main{max-width:1000px;margin:0 auto;padding:16px}
+section{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:18px}
+[hidden]{display:none!important}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid var(--bd);padding:4px 6px;text-align:left}
+th{background:rgba(127,127,127,.12)}
+input,select{padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--fg);font:inherit;max-width:100%}
+td input,td select{width:100%}
+button{padding:8px 14px;border:0;border-radius:6px;background:var(--ac);color:#fff;font:inherit;cursor:pointer;margin:8px 6px 0 0}
+button.add{background:#6b7280;margin:0}
+.err{color:#d33;min-height:1.3em;margin:6px 0}
+.lg{margin-bottom:16px}
+.lt{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.lt>div:nth-child(2){flex:1;min-width:240px}
+.side{display:flex;flex-direction:column;gap:8px;min-width:170px}
+.side label{display:flex;flex-direction:column;font-size:.9rem}
+.row{display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.big{font-size:1.2rem;font-weight:700;margin-top:10px}
+#fb{white-space:pre-wrap}
+.num{text-align:right}
+</style>
+</head>
+<body>
+<header><h1 data-t="title"></h1>
+<select id="lang"><option value="es">Castellano</option><option value="eu">Euskara</option><option value="en">English</option></select></header>
+<main>
+
+<section id="s1">
+<h2 data-t="setup"></h2>
+<p><label><span data-t="key"></span><br><input id="key" type="password" size="40" autocomplete="off"></label></p>
+<p><label><span data-t="n"></span><br><input id="n" type="number" min="1" max="40" step="1" value="10"></label></p>
+<button id="gen" data-t="gen"></button>
+<div class="err" id="e1"></div>
+<ol id="ents"></ol>
+</section>
+
+<section id="s2" hidden>
+<h2 data-t="journal"></h2>
+<table id="jtab"><thead><tr><th data-t="entryNo"></th><th data-t="account"></th><th data-t="debit"></th><th data-t="credit"></th></tr></thead>
+<tbody id="jb"></tbody>
+<tfoot><tr><th colspan="2" data-t="total"></th><th class="num" id="jd">0.00</th><th class="num" id="jc">0.00</th></tr></tfoot></table>
+<button class="add" id="addJ" data-t="addRow"></button>
+<button id="mkL" data-t="mkLedger"></button>
+</section>
+
+<section id="s3" hidden>
+<h2 data-t="ledger"></h2>
+<div id="lg"></div>
+<button id="toR" data-t="toResult"></button>
+</section>
+
+<section id="s4" hidden>
+<h2 data-t="result"></h2>
+<p data-t="resultHint"></p>
+<div id="rl"></div>
+<div class="big"><span data-t="result"></span>: <span id="res">0.00</span></div>
+<button id="toB" data-t="toBalance"></button>
+</section>
+
+<section id="s5" hidden>
+<h2 data-t="balance"></h2>
+<div id="bl"></div>
+<div class="err" id="e5"></div>
+<button id="mkB" data-t="mkBalance"></button>
+<div id="bt"></div>
+<button id="toPL" data-t="toPL" hidden></button>
+</section>
+
+<section id="s6" hidden>
+<h2 data-t="pl"></h2>
+<div id="plt"></div>
+<button id="fin" data-t="finish"></button>
+</section>
+
+<section id="s7" hidden>
+<h2 data-t="feedback"></h2>
+<div id="fb"></div>
+</section>
+
+</main>
+<script>
+/* ===== CONFIG ===== */
+const MODEL = "gemini-3.8-flash"; // Cambia aquí el identificador del modelo de Gemini si hace falta
+
+const LI = {es: 0, eu: 1, en: 2};
+// [grupo [es, eu, en], [[código, es, eu, en], ...]]
+const ACC = [
+ [["1 · FINANCIACIÓN BÁSICA","1 · FINANTZAKETA OINARRIZKOA","1 · BASIC FINANCING"],[
+  [100,"Capital social","Kapital soziala","Share capital"],
+  [129,"Resultados del ejercicio","Ekitaldiko emaitzak","Profit or loss for the year"],
+  [170,"Deudas a l/p con entidades de crédito","Kreditu-erakundeekiko epe luzerako zorrak","Long-term debts with credit institutions"]]],
+ [["2 · ACTIVO NO CORRIENTE","2 · AKTIBO EZ-KORRONTEA","2 · NON-CURRENT ASSETS"],[
+  [206,"Aplicaciones informáticas","Informatika-aplikazioak","Computer software"],
+  [211,"Construcciones","Eraikuntzak","Buildings"],
+  [213,"Maquinaria","Makineria","Machinery"],
+  [217,"Equipos para procesos de información","Informazioa prozesatzeko ekipoak","Information processing equipment"],
+  [218,"Elementos de transporte","Garraio-elementuak","Transport equipment"]]],
+ [["3 · EXISTENCIAS","3 · IZAKINAK","3 · INVENTORIES"],[
+  [328,"Material de oficina","Bulego-materiala","Office supplies"]]],
+ [["4 · ACREEDORES Y DEUDORES POR OPERACIONES COMERCIALES","4 · OPERAZIO KOMERTZIALEN HARTZEKODUNAK ETA ZORDUNAK","4 · CREDITORS AND DEBTORS FOR TRADE OPERATIONS"],[
+  [400,"Proveedores","Hornitzaileak","Suppliers"],
+  [410,"Acreedores por prestaciones de servicios","Zerbitzu-emateengatiko hartzekodunak","Creditors for services rendered"],
+  [430,"Clientes","Bezeroak","Customers"],
+  [431,"Clientes, efectos comerciales a cobrar","Bezeroak, kobratzeko merkataritza-efektuak","Customers, trade bills receivable"],
+  [440,"Deudores","Zordunak","Debtors"]]],
+ [["5 · CUENTAS FINANCIERAS","5 · FINANTZA-KONTUAK","5 · FINANCIAL ACCOUNTS"],[
+  [520,"Deudas a c/p con entidades de crédito","Kreditu-erakundeekiko epe laburreko zorrak","Short-term debts with credit institutions"],
+  [570,"Caja, Euros","Kutxa, euroak","Cash, euros"],
+  [572,"Bancos","Bankuak","Banks"]]],
+ [["6 · COMPRAS Y GASTOS","6 · EROSKETAK ETA GASTUAK","6 · PURCHASES AND EXPENSES"],[
+  [600,"Compra mercaderías","Merkantzien erosketa","Purchases of goods"],
+  [621,"Arrendamientos y cánones","Errentamenduak eta kanonak","Leases and royalties"],
+  [622,"Reparaciones y conservación","Konponketak eta kontserbazioa","Repairs and maintenance"],
+  [625,"Primas de seguros","Aseguru-primak","Insurance premiums"],
+  [626,"Servicios bancarios","Banku-zerbitzuak","Bank services"],
+  [627,"Publicidad","Publizitatea","Advertising"],
+  [628,"Suministros","Hornidurak","Utilities"]]],
+ [["7 · VENTAS E INGRESOS","7 · SALMENTAK ETA SARRERAK","7 · SALES AND INCOME"],[
+  [700,"Venta de mercaderías","Merkantzien salmenta","Sales of goods"],
+  [705,"Prestaciones de servicios","Zerbitzu-emateak","Services rendered"],
+  [725,"Ingresos por arrendamientos","Errentamenduengatiko sarrerak","Lease income"],
+  [768,"Diferencias positivas de cambio","Truke-diferentzia positiboak","Positive exchange differences"],
+  [769,"Otros ingresos financieros","Beste finantza-sarrera batzuk","Other financial income"]]]
+];
+const ACCS = {};
+ACC.forEach(g => g[1].forEach(a => ACCS[a[0]] = a.slice(1)));
+const NAME = c => ACCS[c][LI[lang]];
+const codes = () => Object.keys(ACCS).map(c => c + " - " + NAME(c)).join("\n");
+const opts = () => '<option value=""></option>' + ACC.map(g => `<optgroup label="${g[0][LI[lang]]}">${g[1].map(a => `<option value="${a[0]}">${a[0]} – ${a[1 + LI[lang]]}</option>`).join("")}</optgroup>`).join("");
+
+const EX = `(a) 2 September: We have paid 200€ in cash for the advertisement in a magazine.
+(b) 2 September: We have paid a water bill of 250€ by cheque.
+(c) 3 September: Due to the improvement in the value of the euro with the dollar, we won 80€ in an exchange difference.
+(d) 5 September: a customer has bought from us a product worth 3.000 but has not paid it.
+(e) 5 September: We received a bill for 300€ for electricity and we have not paid it.
+(f) 5 September: We have paid 500€ to the insurance company by bank transfer for the insurance of the truck.
+(g) 7 September: We have purchased raw materials worth 4.000€, which we will pay in 30 days.
+(h) 10 September: We have leased a warehouse to another company and have an income of 4.500€ this month.
+(i) 15 September: We have received an invoice for repairing the truck for 300€ and we have not paid it.
+(j) 25 September: We have paid the previous invoice by bank transfer.
+(k) 26 September: We bought a new oven with 10.000€ in bank current account.
+(l) 26 September: Let's have 1.500€ cash at the company's headquarters.
+(m) 27 September: With the 9.000€ loan given us by the bank, that we are going to pay this year and the next 2, we have bought a car for deliveries.
+(n) 27 September: We have sold an order to a customer worth 5.500€ to be paid within 60 days.
+(o) 30 September: Orange has sent us an invoice for 50€ for the last month and we have not paid it.
+(p) 1 October: We have been charged for the previous bill by direct debit from our current account.
+(q) 1 October: The bank has charged us 10€ fee for a transfer to a supplier.
+(r) 1 October: We paid 2.000€ by bank transfer to a company that sold us raw materials.
+(s) 2 October: We have installed a new antivirus on the office computer with a cash payment of 250€.
+(t) 3 October: For the warehouse that we rented to store goods we have paid 500€ in cash.
+(u) 4 October: The bank has paid us 60€ for the money we have had in the current account during the year.
+(v) 5 October: We carried out a transport service valued at 100€ for a company. We agreed to be paid in one month.
+(w) 6 October: We have been paid for the previous transport service via the bank.
+(x) 27 November: the customer has paid us for the order of 5.500€
+(y) 1 December: We paid 3.000€ of the loan we received to buy the car with money from the current account.`;
+
+/* ===== I18N ===== */
+const T = {
+es:{title:"Práctica de contabilidad",setup:"Configuración",key:"Clave API de Gemini (gratuita)",n:"Número de entradas (1-40)",gen:"Generar entradas",
+ errKey:"Introduce la clave API.",errN:"El número debe ser entero y estar entre 1 y 40.",loading:"Cargando…",err:"Error",
+ journal:"LIBRO DIARIO (JOURNAL BOOK)",entryNo:"Nº de entrada",account:"Código y descripción",debit:"Debe (debit)",credit:"Haber (credit)",total:"Total",addRow:"+ Añadir fila",
+ mkLedger:"Generar libro mayor",ledger:"LIBRO MAYOR (LEDGER BOOK)",balType:"Tipo de saldo",balVal:"Saldo",sd:"Saldo debit",sa:"Saldo credit",
+ toResult:"Calcular resultado del ejercicio",result:"RESULTADO DEL EJERCICIO",resultHint:"Marca las cuentas que intervienen en el resultado (ingresos y gastos).",
+ toBalance:"Pasar al BALANCE",balance:"BALANCE",asset:"Asset",liability:"Liability",mkBalance:"Generar balance",errAll:"Cada elemento debe ser asset o liability.",
+ toPL:"Calcular Profit and loss account",pl:"PROFIT AND LOSS ACCOUNT",income:"Ingresos",expense:"Gastos",tax:"Impuestos (%)",before:"Resultado antes de impuestos",net:"Resultado tras impuestos",
+ finish:"FINALIZAR",feedback:"CORRECCIÓN",element:"Elemento",lr:"Liability + resultado"},
+eu:{title:"Kontabilitate praktika",setup:"Konfigurazioa",key:"Gemini API gakoa (doakoa)",n:"Sarrera kopurua (1-40)",gen:"Sarrerak sortu",
+ errKey:"Sartu API gakoa.",errN:"Zenbakiak osoa izan behar du eta 1 eta 40 artekoa.",loading:"Kargatzen…",err:"Errorea",
+ journal:"EGUNKARIA (JOURNAL BOOK)",entryNo:"Sarrera zk.",account:"Kodea eta deskribapena",debit:"Zor (debit)",credit:"Har (credit)",total:"Guztira",addRow:"+ Errenkada gehitu",
+ mkLedger:"Liburu nagusia sortu",ledger:"LIBURU NAGUSIA (LEDGER BOOK)",balType:"Saldo mota",balVal:"Saldoa",sd:"Debit saldoa",sa:"Credit saldoa",
+ toResult:"Ekitaldiko emaitza kalkulatu",result:"EKITALDIKO EMAITZA",resultHint:"Markatu emaitzan parte hartzen duten kontuak (sarrerak eta gastuak).",
+ toBalance:"BALANTZERA pasatu",balance:"BALANTZEA",asset:"Asset",liability:"Liability",mkBalance:"Balantzea sortu",errAll:"Elementu bakoitzak asset edo liability izan behar du.",
+ toPL:"Profit and loss account kalkulatu",pl:"PROFIT AND LOSS ACCOUNT",income:"Sarrerak",expense:"Gastuak",tax:"Zergak (%)",before:"Zergen aurreko emaitza",net:"Zergen ondoko emaitza",
+ finish:"AMAITU",feedback:"ZUZENKETA",element:"Elementua",lr:"Liability + emaitza"},
+en:{title:"Accounting practice",setup:"Setup",key:"Gemini API key (free)",n:"Number of entries (1-40)",gen:"Generate entries",
+ errKey:"Enter the API key.",errN:"The value must be an integer between 1 and 40.",loading:"Loading…",err:"Error",
+ journal:"JOURNAL BOOK",entryNo:"Entry no.",account:"Code and description",debit:"Debit",credit:"Credit",total:"Total",addRow:"+ Add row",
+ mkLedger:"Generate ledger",ledger:"LEDGER BOOK",balType:"Balance type",balVal:"Balance",sd:"Debit balance",sa:"Credit balance",
+ toResult:"Calculate result of the year",result:"RESULT OF THE YEAR",resultHint:"Tick the accounts that make up the result (income and expenses).",
+ toBalance:"Go to BALANCE",balance:"BALANCE SHEET",asset:"Asset",liability:"Liability",mkBalance:"Generate balance sheet",errAll:"Every item must be asset or liability.",
+ toPL:"Calculate Profit and loss account",pl:"PROFIT AND LOSS ACCOUNT",income:"Income",expense:"Expenses",tax:"Tax (%)",before:"Result before tax",net:"Result after tax",
+ finish:"FINISH",feedback:"FEEDBACK",element:"Item",lr:"Liability + result"}
+};
+const LN = {es:"Spanish", eu:"Basque", en:"English"};
+let lang = "es", ENT = [], KEY = "", RES = 0, BL = [], BALD = {}, PLD = {};
+const t = k => T[lang][k] || k;
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const num = v => parseFloat(v) || 0, f = n => n.toFixed(2);
+const show = id => { const s = $("#" + id); s.hidden = false; s.scrollIntoView({behavior: "smooth"}); };
+const nm = c => c + " – " + NAME(c);
+function applyLang() {
+  document.documentElement.lang = lang;
+  $$("[data-t]").forEach(e => e.textContent = t(e.dataset.t));
+}
+$("#lang").onchange = e => { lang = e.target.value; applyLang(); };
+applyLang();
+
+/* ===== GEMINI ===== */
+async function gem(prompt, json) {
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "x-goog-api-key": KEY},
+    body: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: json ? {responseMimeType: "application/json"} : {}})
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error?.message || r.status);
+  return d.candidates[0].content.parts.map(p => p.text || "").join("");
+}
+
+/* ===== 1. ENTRIES ===== */
+$("#gen").onclick = async () => {
+  const n = $("#n").value.trim(), k = $("#key").value.trim(), e = $("#e1");
+  e.textContent = "";
+  if (!k) { e.textContent = t("errKey"); return; }
+  if (!/^\d+$/.test(n) || +n < 1 || +n > 40) { e.textContent = t("errN"); return; }
+  KEY = k; const N = +n;
+  e.textContent = t("loading");
+  const prompt = `You are an accounting teacher. Create exactly ${N} different accounting operations for students, written in ${LN[lang]}, in the same style as these examples:\n${EX}\n\nRules:\n- Every operation must be solvable using ONLY these account codes:\n${codes()}\n- Each operation has a date (day and month, written in ${LN[lang]}) and a short text with amounts.\n- Vary the types of operations and pair some (e.g. a credit purchase and its later payment).\n- Return ONLY a JSON array of ${N} objects like {"date":"...","text":"..."}, with no extra text.`;
+  try {
+    const out = await gem(prompt, true);
+    ENT = JSON.parse(out.replace(/```json|```/g, "").trim()).slice(0, N);
+    $("#ents").innerHTML = ENT.map(x => `<li><b>${x.date}:</b> ${x.text}</li>`).join("");
+    e.textContent = "";
+    $("#lang").disabled = true;
+    const eo = ENT.map((_, i) => `<option>${i + 1}</option>`).join("");
+    window.EOPTS = '<option value=""></option>' + eo;
+    $("#jb").innerHTML = ""; addJ(); addJ(); addJ(); totJ();
+    show("s2");
+  } catch (x) { e.textContent = t("err") + ": " + x.message; }
+};
+
+/* ===== 2. JOURNAL ===== */
+function addJ() {
+  $("#jb").insertAdjacentHTML("beforeend", `<tr><td><select class="en">${EOPTS}</select></td><td><select class="ac">${opts()}</select></td><td><input class="d" type="number" min="0" step="any"></td><td><input class="c" type="number" min="0" step="any"></td></tr>`);
+}
+function totJ() {
+  $("#jd").textContent = f($$("#jb .d").reduce((s, i) => s + num(i.value), 0));
+  $("#jc").textContent = f($$("#jb .c").reduce((s, i) => s + num(i.value), 0));
+}
+$("#addJ").onclick = addJ;
+$("#jtab").addEventListener("input", totJ);
+
+/* ===== 3. LEDGER ===== */
+const LROW = '<tr><td><input type="number" min="0" step="any"></td><td><input type="number" min="0" step="any"></td></tr>';
+$("#mkL").onclick = () => {
+  const codes = [...new Set($$("#jb .ac").map(s => s.value).filter(Boolean))];
+  if (!codes.length) return;
+  $("#lg").innerHTML = codes.map(c => `<div class="lg" data-c="${c}"><div class="lt"><button class="add">+</button>
+  <div><h3>${nm(c)}</h3><table><thead><tr><th>${t("debit")}</th><th>${t("credit")}</th></tr></thead><tbody>${LROW}</tbody>
+  <tfoot><tr><th class="num td">0.00</th><th class="num tc">0.00</th></tr></tfoot></table></div>
+  <div class="side"><label>${t("balType")}<select class="bt"><option value="D">${t("sd")}</option><option value="C">${t("sa")}</option></select></label>
+  <label>${t("balVal")}<input class="bv" type="number" min="0" step="any"></label></div></div></div>`).join("");
+  show("s3");
+};
+$("#lg").addEventListener("click", e => {
+  if (e.target.classList.contains("add")) e.target.closest(".lg").querySelector("tbody").insertAdjacentHTML("beforeend", LROW);
+});
+$("#lg").addEventListener("input", e => {
+  const d = e.target.closest(".lg"); if (!d) return;
+  const s = i => [...d.querySelectorAll(`tbody td:nth-child(${i}) input`)].reduce((a, x) => a + num(x.value), 0);
+  d.querySelector(".td").textContent = f(s(1)); d.querySelector(".tc").textContent = f(s(2));
+});
+const LG = () => $$(".lg").map(d => ({code: d.dataset.c, name: NAME(d.dataset.c), type: d.querySelector(".bt").value, val: num(d.querySelector(".bv").value)}));
+const lbl = a => `${f(a.val)} (${a.type == "D" ? t("sd") : t("sa")})`;
+
+/* ===== 4. RESULT ===== */
+$("#toR").onclick = () => {
+  $("#rl").innerHTML = LG().map((a, i) => `<label class="row"><input type="checkbox" data-ix="${i}"> ${nm(a.code)} <b>${lbl(a)}</b></label>`).join("");
+  calcR(); show("s4");
+};
+function calcR() {
+  const L = LG();
+  RES = $$("#rl input:checked").reduce((s, c) => { const a = L[c.dataset.ix]; return s + (a.type == "C" ? a.val : -a.val); }, 0);
+  $("#res").textContent = f(RES);
+}
+$("#rl").addEventListener("change", calcR);
+
+/* ===== 5. BALANCE ===== */
+$("#toB").onclick = () => {
+  const L = LG(), sel = $$("#rl input:checked").map(c => +c.dataset.ix);
+  BL = L.filter((_, i) => !sel.includes(i));
+  $("#bl").innerHTML = BL.map(a => `<div class="row"><label><input type="checkbox" class="as"> ${t("asset")}</label><label><input type="checkbox" class="li"> ${t("liability")}</label><span>${nm(a.code)} <b>${lbl(a)}</b></span></div>`).join("");
+  $("#bt").innerHTML = ""; $("#toPL").hidden = true; $("#e5").textContent = "";
+  show("s5");
+};
+$("#bl").addEventListener("change", e => {
+  const r = e.target.closest(".row"); if (!e.target.checked) return;
+  r.querySelector(e.target.classList.contains("as") ? ".li" : ".as").checked = false;
+});
+$("#mkB").onclick = () => {
+  const rows = $$("#bl .row");
+  if (rows.some(r => !r.querySelector(".as").checked && !r.querySelector(".li").checked)) { $("#e5").textContent = t("errAll"); return; }
+  $("#e5").textContent = "";
+  const A = [], Li = [];
+  BL.forEach((a, i) => (rows[i].querySelector(".as").checked ? A : Li).push(a));
+  const sA = A.reduce((s, a) => s + a.val, 0), sL = Li.reduce((s, a) => s + a.val, 0);
+  const n = Math.max(A.length, Li.length, 1);
+  let h = `<table><thead><tr><th>${t("asset")}</th><th>${t("liability")}</th><th>${t("result")}</th></tr></thead><tbody>`;
+  for (let i = 0; i < n; i++) {
+    const a = A[i], l = Li[i];
+    h += `<tr><td>${a ? nm(a.code) + " — " + f(a.val) : ""}</td><td>${l ? nm(l.code) + " — " + f(l.val) : ""}</td><td>${i == 0 ? f(RES) : ""}</td></tr>`;
+  }
+  h += `</tbody><tfoot><tr><th>${t("total")}: ${f(sA)}</th><th>${t("total")}: ${f(sL)}</th><th>${t("total")}: ${f(RES)}</th></tr>
+  <tr><th></th><th colspan="2">${t("lr")}: ${f(sL + RES)}</th></tr></tfoot></table>`;
+  $("#bt").innerHTML = h;
+  BALD = {assets: A, liabilities: Li, result: RES, totalAssets: sA, totalLiabilities: sL, totalLiabilitiesPlusResult: sL + RES};
+  $("#toPL").hidden = false;
+};
+
+/* ===== 6. PROFIT AND LOSS ===== */
+$("#toPL").onclick = () => {
+  const L = LG(), sel = $$("#rl input:checked").map(c => L[c.dataset.ix]);
+  const inc = sel.filter(a => a.type == "C"), exp = sel.filter(a => a.type == "D");
+  const li = a => `<tr><td>${nm(a.code)}</td><td class="num">${f(a.val)}</td></tr>`;
+  $("#plt").innerHTML = `<table><tbody>
+  <tr><th colspan="2">${t("income")}</th></tr>${inc.map(li).join("")}
+  <tr><th colspan="2">${t("expense")}</th></tr>${exp.map(li).join("")}
+  <tr><th>${t("before")}</th><th class="num">${f(RES)}</th></tr>
+  <tr><td>${t("tax")}</td><td><input id="tax" type="number" min="0" max="100" step="any"></td></tr>
+  <tr><th>${t("net")}</th><th class="num" id="net">${f(RES)}</th></tr></tbody></table>`;
+  PLD = {income: inc, expenses: exp, resultBeforeTax: RES, taxPercent: 0, resultAfterTax: RES};
+  $("#tax").oninput = () => {
+    const p = num($("#tax").value);
+    PLD.taxPercent = p; PLD.resultAfterTax = RES > 0 ? RES * (1 - p / 100) : RES;
+    $("#net").textContent = f(PLD.resultAfterTax);
+  };
+  show("s6");
+};
+
+/* ===== 7. FINISH ===== */
+$("#fin").onclick = async () => {
+  const journal = $$("#jb tr").map(r => ({entry: r.querySelector(".en").value, account: r.querySelector(".ac").value, debit: num(r.querySelector(".d").value), credit: num(r.querySelector(".c").value)}));
+  const ledger = $$(".lg").map(d => ({
+    account: nm(d.dataset.c),
+    debit: [...d.querySelectorAll("tbody td:nth-child(1) input")].map(i => num(i.value)),
+    credit: [...d.querySelectorAll("tbody td:nth-child(2) input")].map(i => num(i.value)),
+    balanceType: d.querySelector(".bt").value == "D" ? "debit" : "credit",
+    balance: num(d.querySelector(".bv").value)
+  }));
+  const data = {initialEntries: ENT.map((x, i) => `${i + 1}. ${x.date}: ${x.text}`), journalBook: journal, ledgerBook: ledger, resultOfTheYear: RES, balanceSheet: BALD, profitAndLoss: PLD};
+  const prompt = `You are an accounting teacher correcting a student's exercise (Spanish General Accounting Plan, codes from this list only):\n${codes()}\n\nBelow is the exercise in JSON: the initial entries, the student's journal book, ledger book (debit and credit columns plus the balance the student calculated), result of the year, balance sheet and profit and loss account.\n\n${JSON.stringify(data)}\n\nCheck everything carefully: journal entries (correct accounts and debit/credit side, debits equal credits), ledger totals and balances, the result of the year, the balance sheet (assets = liabilities + result) and the profit and loss account with taxes.\nAnswer in ${LN[lang]} using PLAIN TEXT only (no Markdown, no asterisks, no tables). Structure: 1) Mistakes found, 2) How to fix each one, 3) Hints about what to pay attention to next time to avoid repeating them. If everything is correct, say so and give a short tip.`;
+  $("#fb").textContent = t("loading"); show("s7");
+  try { $("#fb").textContent = (await gem(prompt, false)).replace(/[*#`]/g, ""); }
+  catch (x) { $("#fb").textContent = t("err") + ": " + x.message; }
+};
+</script>
+</body>
+</html>
